@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Karten App</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f5f5f5;
+    }
+    header {
+      background: #4CAF50;
+      color: white;
+      padding: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #map {
+      height: 60vh;
+    }
+    #searchBox {
+      padding: 8px;
+      margin: 10px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+    }
+    #searchBtn {
+      padding: 8px 12px;
+      border: none;
+      background: #4CAF50;
+      color: white;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    #profile {
+      background: white;
+      padding: 10px;
+      border-top: 1px solid #ddd;
+    }
+  </style>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+</head>
+<body>
+  <header>
+    <h1>Karten App</h1>
+    <div id="auth-section">
+      <button id="loginBtn">Login</button>
+      <button id="logoutBtn" style="display:none;">Logout</button>
+    </div>
+  </header>
+  <main>
+    <input type="text" id="searchBox" placeholder="Ort suchen...">
+    <button id="searchBtn">Suchen</button>
+    <div id="map"></div>
+    <div id="profile">
+      <h2>Letzte Suchanfragen</h2>
+      <ul id="searchHistory"></ul>
+    </div>
+  </main>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <!-- Firebase SDKs -->
+  <!-- === EINZIGE STELLE für deinen Firebase Config Block === -->
+  const firebaseConfig = {
+  apiKey: "AIzaSyBUPTfzcgay2KBbdoYFBX11fqflsmoPr-k",
+  authDomain: "kartenapp-b44d4.firebaseapp.com",
+  projectId: "kartenapp-b44d4",
+  storageBucket: "kartenapp-b44d4.firebasestorage.app",
+  messagingSenderId: "177511701860",
+  appId: "1:177511701860:web:9515cbd41caed5ddd72e71"
+};
+
+  <script>
+    // === Karten Setup mit Leaflet ===
+    const map = L.map('map').setView([53.5511, 9.9937], 13); // Hamburg Startpunkt
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    let marker;
+
+    // === Suche mit Nominatim API ===
+    async function searchLocation(query) {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.length > 0) {
+        const { lat, lon, display_name } = data[0];
+        if (marker) map.removeLayer(marker);
+        marker = L.marker([lat, lon]).addTo(map).bindPopup(display_name).openPopup();
+        map.setView([lat, lon], 14);
+        saveSearch(query);
+      }
+    }
+
+    // === Suchanfragen speichern ===
+    function saveSearch(query) {
+      const user = firebase.auth().currentUser;
+      if (user) {
+        firebase.firestore().collection("users").doc(user.uid).update({
+          searches: firebase.firestore.FieldValue.arrayUnion(query)
+        });
+        loadSearchHistory();
+      }
+    }
+
+    // === Suchhistorie laden ===
+    async function loadSearchHistory() {
+      const user = firebase.auth().currentUser;
+      if (user) {
+        const doc = await firebase.firestore().collection("users").doc(user.uid).get();
+        if (doc.exists) {
+          const history = doc.data().searches || [];
+          const list = document.getElementById("searchHistory");
+          list.innerHTML = "";
+          history.slice(-10).forEach(item => {
+            const li = document.createElement("li");
+            li.textContent = item;
+            list.appendChild(li);
+          });
+        }
+      }
+    }
+
+    // === Auth Buttons ===
+    document.getElementById("loginBtn").addEventListener("click", async () => {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      await firebase.auth().signInWithPopup(provider);
+    });
+
+    document.getElementById("logoutBtn").addEventListener("click", async () => {
+      await firebase.auth().signOut();
+    });
+
+    // === Auth State Listener ===
+    firebase.auth().onAuthStateChanged(user => {
+      if (user) {
+        document.getElementById("loginBtn").style.display = "none";
+        document.getElementById("logoutBtn").style.display = "inline-block";
+        firebase.firestore().collection("users").doc(user.uid).set({
+          searches: []
+        }, { merge: true });
+        loadSearchHistory();
+      } else {
+        document.getElementById("loginBtn").style.display = "inline-block";
+        document.getElementById("logoutBtn").style.display = "none";
+        document.getElementById("searchHistory").innerHTML = "";
+      }
+    });
+
+    // === Suche Button ===
+    document.getElementById("searchBtn").addEventListener("click", () => {
+      const query = document.getElementById("searchBox").value;
+      if (query) searchLocation(query);
+    });
+  </script>
+</body>
+</html>
